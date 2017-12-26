@@ -1,0 +1,247 @@
+---
+title: "VGG-19 Style Transfer Network"
+output: html_notebook
+---
+
+```{r}
+library(keras)
+library(tensorflow)
+```
+
+```{r}
+# instantiate the model
+model <- application_vgg19(include_top = FALSE, weights = 'imagenet', pooling = 'avg')
+summary(model)
+```
+
+```{r}
+compute_content_cost <- function(a_C, a_G) {
+# Computes the content cost
+# 
+#  Arguments:
+#  a_C -- tensor of dimension (1, n_H, n_W, n_C), hidden layer activations
+#  a_G -- tensor of dimension (1, n_H, n_W, n_C), hidden layer activations
+# 
+#  Returns:
+# J_content -- scalar that you compute using equation 1 above.
+  
+  dims <- dim(a_C)
+  a_C_unrolled <- tf$reshape(a_C, c(dims[1], dims[2] * dims[3], dims[4]))
+  a_G_unrolled <- tf$reshape(a_G, c(dims[1], dims[2] * dims[3], dims[4]))
+
+  J_content <- a_C_unrolled %>%
+    tf$subtract(a_G_unrolled) %>% 
+    tf$square() %>%
+    tf$reduce_sum() / (4 * dims[2] * dims[3] * dims[4])
+  
+  return(J_content)
+}
+```
+
+Test ... expect 6.765593
+
+```{r}
+tf$reset_default_graph()
+sess <- tf$Session()
+#sess$run(tf$global_variables_initializer())
+tf$set_random_seed(1L)
+a_C  <- tf$random_normal(c(1L, 4L, 4L, 3L), mean=1, stddev=4)
+a_G  <- tf$random_normal(c(1L, 4L, 4L, 3L), mean=1, stddev=4)
+J_content <- compute_content_cost(a_C, a_G)
+sess$run(J_content)
+```
+
+Test ... expect
+          [,1]      [,2]      [,3]
+[1,]  6.422305 -4.429122 -2.096682
+[2,] -4.429122 19.465837 19.563871
+[3,] -2.096682 19.563871 20.686462
+
+```{r}
+gram_matrix <- function(A) {
+  # Argument:
+  #           A -- matrix of shape (n_C, n_H*n_W)
+  #           Returns:
+  #           GA -- Gram matrix of A, of shape (n_C, n_C)
+  GA = tf$matmul(A, A, transpose_b = TRUE)
+}
+  
+```
+```{r}
+tf$reset_default_graph()
+sess <- tf$Session()
+tf$set_random_seed(1L)
+A = tf$random_normal(c(3L, 2L), mean=1, stddev=4) 
+GA = gram_matrix(A)
+sess$run(GA)
+```
+
+
+```{r}
+compute_layer_style_cost <- function(a_S, a_G) {
+  # Arguments:
+  # a_S -- tensor of dimension (1, n_H, n_W, n_C), hidden layer activations
+  # a_G -- tensor of dimension (1, n_H, n_W, n_C), hidden layer activations
+  # Returns:
+  # J_style_layer -- tensor representing a scalar value, style cost defined
+  
+  # Retrieve dimensions from a_G (≈1 line)
+  #m, n_H, n_W, n_C = a_G.get_shape().as_list()
+  
+  dims <- dim(a_G)
+  
+  # Reshape the images to have them of shape (n_C, n_H*n_W) (≈2 lines)
+  # a_S <- tf$transpose(tf$reshape(a_S, c(dims[2] * dims[3], dims[4]))) 
+  # a_G <- tf$transpose(tf$reshape(a_G, c(dims[2] * dims[3], dims[4]))) 
+  a_S <- a_S %>% tf$reshape(c(dims[2] * dims[3], dims[4])) %>% tf$transpose()
+  a_G <- a_G %>% tf$reshape(c(dims[2] * dims[3], dims[4])) %>% tf$transpose()
+  
+  # Computing gram_matrices for both images S and G (≈2 lines)
+  GS <- gram_matrix(a_S)
+  GG <- gram_matrix(a_G)
+  # Computing the loss (≈1 line)
+  
+  J_style_layer <- GS %>% tf$subtract(GG) %>% tf$square() %>% tf$reduce_sum() / 
+    (4 * dims[4]^2 * (dims[2] * dims[3])^2 )
+  #tf.reduce_sum(tf.square(tf.subtract(GS, GG))) / (4 * n_C ### END CODE HERE ###
+  return (J_style_layer)
+}
+```
+
+Test expect ... 9.190278
+
+```{r}
+tf$reset_default_graph()
+sess <- tf$Session()
+tf$set_random_seed(1L)
+a_S  <- tf$random_normal(c(1L, 4L, 4L, 3L), mean=1.0, stddev=4.0)
+a_G  <- tf$random_normal(c(1L, 4L, 4L, 3L), mean=1.0, stddev=4.0)
+J_style_layer <- compute_layer_style_cost(a_S, a_G)
+sess$run(J_style_layer)
+```
+```{r}
+STYLE_LAYERS <- data.frame( layer = paste0('conv', 1:5, '_1'), coeff = 0.2)
+```
+```{r}
+compute_style_cost <- function(model, STYLE_LAYERS) {
+# Computes the overall style cost from several chosen layers
+# Arguments:
+# model -- our tensorflow model
+# STYLE_LAYERS -- A python list containing:
+#                     - the names of the layers we would like to extract s
+#                     - a coefficient for each of them
+# Returns:
+# J_style -- tensor representing a scalar value, style cost defined above
+# initialize the overall style cost
+  J_style <- 0
+  for (i in 1:nrow(STYLE_LAYERS)) {
+    layer_name <- STYLE_LAYERS$layer[i]
+    coeff <- STYLE_LAYERS$coeff[i]
+    # Select the output tensor of the currently selected layer
+    out <- model[[layer_name]]
+    # Set a_S to be the hidden layer activation from the layer we have s
+    a_S <- sess.run(out)
+    # Set a_G to be the hidden layer activation from same layer. Here, a 
+    # and isn't evaluated yet. Later in the code, we'll assign the image # when we run the session, this will be the activations drawn from t 
+    a_G <- out
+    # Compute style_cost for the current layer
+    J_style_layer <- compute_layer_style_cost(a_S, a_G)
+    # Add coeff * J_style_layer of this layer to overall style cost
+    J_style <- J_style + coeff * J_style_layer 
+    return (J_style)
+  }
+}
+```
+```{r}
+total_cost <- function(J_content, J_style, alpha = 10, beta = 40) { 
+  # Computes the total cost function
+  # Arguments:
+  # J_content -- content cost coded above
+  # J_style -- style cost coded above
+  # alpha -- hyperparameter weighting the importance of the content cost
+  # beta -- hyperparameter weighting the importance of the style cost
+  # Returns:
+  # J -- total cost as defined by the formula above.
+  J <- J_content * alpha + J_style * beta 
+  return (J)
+}
+```
+
+Test ... expect 35.34668
+
+```{r}
+J_content <- 1.7886284734303186
+J_style <- 0.43650985051198943
+J = total_cost(J_content, J_style) 
+J
+```
+
+```{r}
+content_path <- 'images/louvre_small.jpg'
+content_image <- readJPEG(content_path)
+plot(1:2, 1:2, type='n', asp = 1)
+rasterImage(content_image,1,1,2,2)
+```
+```{r}
+style_path <- 'images/monet.jpg'
+style_image <- readJPEG(style_path)
+plot(1:2, 1:2, type='n', asp = 1)
+rasterImage(style_image,1,1,2,2)
+```
+
+```{r}
+content_image <- content_path %>%
+  image_load() %>%
+  image_to_array() %>%
+  array_reshape(c(1, dim(.)))
+
+style_image <- style_path %>%
+  image_load() %>%
+  image_to_array() %>%
+  array_reshape(c(1, dim(.)))
+
+stopifnot(dim(content_image) == dim(style_image))
+image_size <- dim(content_image)[2:4]
+```
+
+
+```{r}
+CONFIG.NOISE_RATIO <- 0.6
+generate_noise_image <- function(content_image, noise_ratio = CONFIG.NOISE_RATIO) {
+  #    Generates a noisy image by adding random noise to the content_image
+  
+  # Generate a random noise_image
+  image_size <- dim(content_image)
+  noise_image <- runif( prod(image_size), min = 0, max = 255)
+  dim(noise_image) <- image_size
+  
+  # Set the input_image to be a weighted average of the content_image and a noise_image
+  input_image <- noise_image * noise_ratio + content_image * (1 - noise_ratio)
+  
+  return (input_image)
+}
+```
+
+```{r}
+generated_image <- generate_noise_image(content_image) 
+```
+```{r}
+plot(1:2, 1:2, type='n', asp = 1)
+rasterImage(generated_image[1,,,]/255 , 1,1,2,2)
+```
+
+```{r}
+# Reset the graph 
+tf$reset_default_graph()
+# Start interactive session
+sess <- tf$InteractiveSession()
+```
+
+```{r}
+model <- application_vgg19(include_top = FALSE, weights = 'imagenet', pooling = 'avg', input_shape = image_size[-1] )
+```
+
+```{r}
+sess$run(model$input$assign(content_image))
+```
+
