@@ -6,6 +6,7 @@ output: html_notebook
 ```{r}
 library(keras)
 library(tensorflow)
+library(tidyverse)
 ```
 
 ```{r}
@@ -28,11 +29,13 @@ compute_content_cost <- function(a_C, a_G) {
   dims <- dim(a_C)
   a_C_unrolled <- tf$reshape(a_C, c(dims[1], dims[2] * dims[3], dims[4]))
   a_G_unrolled <- tf$reshape(a_G, c(dims[1], dims[2] * dims[3], dims[4]))
+  
+  denom <- tf$constant(4 *  prod(dims[2:4]))
 
   J_content <- a_C_unrolled %>%
     tf$subtract(a_G_unrolled) %>% 
     tf$square() %>%
-    tf$reduce_sum() / (4 * dims[2] * dims[3] * dims[4])
+    tf$reduce_sum() / denom
   
   return(J_content)
 }
@@ -120,7 +123,7 @@ J_style_layer <- compute_layer_style_cost(a_S, a_G)
 sess$run(J_style_layer)
 ```
 ```{r}
-STYLE_LAYERS <- data.frame( layer = paste0('conv', 1:5, '_1'), coeff = 0.2)
+STYLE_LAYERS <- tibble( layer = paste0('block', 1:5, '_conv1'), coeff = 0.2)
 ```
 ```{r}
 compute_style_cost <- function(model, STYLE_LAYERS) {
@@ -138,9 +141,13 @@ compute_style_cost <- function(model, STYLE_LAYERS) {
     layer_name <- STYLE_LAYERS$layer[i]
     coeff <- STYLE_LAYERS$coeff[i]
     # Select the output tensor of the currently selected layer
+    
     out <- model[[layer_name]]
     # Set a_S to be the hidden layer activation from the layer we have s
     a_S <- sess.run(out)
+    a_S <- keras_model(inputs = model$input,
+                       outputs = get_layer(model, layer_name)$output) %>%
+      predict(content_image)
     # Set a_G to be the hidden layer activation from same layer. Here, a 
     # and isn't evaluated yet. Later in the code, we'll assign the image # when we run the session, this will be the activations drawn from t 
     a_G <- out
@@ -241,7 +248,23 @@ sess <- tf$InteractiveSession()
 model <- application_vgg19(include_top = FALSE, weights = 'imagenet', pooling = 'avg', input_shape = image_size[-1] )
 ```
 
+get the activations for the content image for a chosen layer
 ```{r}
-sess$run(model$input$assign(content_image))
+layer_name <- 'block4_conv2'
+model_layer <- keras_model(inputs = model$input,
+                           outputs = get_layer(model, layer_name)$output) 
+a_C <- model_layer %>% predict(content_image)
+```
+
+```{r}
+a_G <- model_layer %>% predict(generated_image)
+```
+
+```{r}
+J_content <- compute_content_cost(a_C, a_G) 
+```
+
+```{r}
+
 ```
 
