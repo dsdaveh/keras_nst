@@ -30,7 +30,7 @@ compute_content_cost <- function(a_C, a_G) {
   a_C_unrolled <- tf$reshape(a_C, c(dims[1], dims[2] * dims[3], dims[4]))
   a_G_unrolled <- tf$reshape(a_G, c(dims[1], dims[2] * dims[3], dims[4]))
   
-  denom <- tf$constant(4 *  prod(dims[2:4]))
+  denom <- tf$constant(4 *  prod(dims[2:4]), dtype = 'float64')
 
   J_content <- a_C_unrolled %>%
     tf$subtract(a_G_unrolled) %>% 
@@ -94,8 +94,6 @@ compute_layer_style_cost <- function(a_S, a_G) {
   dims <- dim(a_G)
   
   # Reshape the images to have them of shape (n_C, n_H*n_W) (≈2 lines)
-  # a_S <- tf$transpose(tf$reshape(a_S, c(dims[2] * dims[3], dims[4]))) 
-  # a_G <- tf$transpose(tf$reshape(a_G, c(dims[2] * dims[3], dims[4]))) 
   a_S <- a_S %>% tf$reshape(c(dims[2] * dims[3], dims[4])) %>% tf$transpose()
   a_G <- a_G %>% tf$reshape(c(dims[2] * dims[3], dims[4])) %>% tf$transpose()
   
@@ -104,9 +102,10 @@ compute_layer_style_cost <- function(a_S, a_G) {
   GG <- gram_matrix(a_G)
   # Computing the loss (≈1 line)
   
-  J_style_layer <- GS %>% tf$subtract(GG) %>% tf$square() %>% tf$reduce_sum() / 
-    (4 * dims[4]^2 * (dims[2] * dims[3])^2 )
-  #tf.reduce_sum(tf.square(tf.subtract(GS, GG))) / (4 * n_C ### END CODE HERE ###
+  denom <- tf$constant(4 * dims[4]^2 * (dims[2] * dims[3])^2, dtype='float64')
+  
+  J_style_layer <- GS %>% tf$subtract(GG) %>% tf$square() %>% tf$reduce_sum() / denom
+
   return (J_style_layer)
 }
 ```
@@ -124,39 +123,40 @@ sess$run(J_style_layer)
 ```
 ```{r}
 STYLE_LAYERS <- tibble( layer = paste0('block', 1:5, '_conv1'), coeff = 0.2)
+STYLE_LAYERS
 ```
 ```{r}
-compute_style_cost <- function(model, STYLE_LAYERS) {
-# Computes the overall style cost from several chosen layers
-# Arguments:
-# model -- our tensorflow model
-# STYLE_LAYERS -- A python list containing:
-#                     - the names of the layers we would like to extract s
-#                     - a coefficient for each of them
-# Returns:
-# J_style -- tensor representing a scalar value, style cost defined above
-# initialize the overall style cost
-  J_style <- 0
+compute_style_cost <- function(model, STYLE_LAYERS, style_image, generated_image) {
+  # Computes the overall style cost from several chosen layers
+  # Arguments:
+  # model -- our tensorflow model
+  # STYLE_LAYERS -- A python list containing:
+  #                     - the names of the layers we would like to extract s
+  #                     - a coefficient for each of them
+  # Returns:
+  # J_style -- tensor representing a scalar value, style cost defined above
+  # initialize the overall style cost
+  J_style <- tf$constant(0, dtype = 'float64')
   for (i in 1:nrow(STYLE_LAYERS)) {
     layer_name <- STYLE_LAYERS$layer[i]
-    coeff <- STYLE_LAYERS$coeff[i]
+    coeff <- tf$constant(STYLE_LAYERS$coeff[i], dtype = 'float64')
     # Select the output tensor of the currently selected layer
+    out <- keras_model(inputs = model$input,
+                       outputs = get_layer(model, layer_name)$output) 
     
-    out <- model[[layer_name]]
     # Set a_S to be the hidden layer activation from the layer we have s
-    a_S <- sess.run(out)
-    a_S <- keras_model(inputs = model$input,
-                       outputs = get_layer(model, layer_name)$output) %>%
-      predict(content_image)
+    a_S <- out %>% predict(style_image)
+    
     # Set a_G to be the hidden layer activation from same layer. Here, a 
     # and isn't evaluated yet. Later in the code, we'll assign the image # when we run the session, this will be the activations drawn from t 
-    a_G <- out
+    a_G <- out %>% predict(generated_image)
     # Compute style_cost for the current layer
     J_style_layer <- compute_layer_style_cost(a_S, a_G)
     # Add coeff * J_style_layer of this layer to overall style cost
-    J_style <- J_style + coeff * J_style_layer 
-    return (J_style)
+    J_style <- J_style + coeff  * J_style_layer 
   }
+  return (J_style)
+  
 }
 ```
 ```{r}
@@ -169,6 +169,8 @@ total_cost <- function(J_content, J_style, alpha = 10, beta = 40) {
   # beta -- hyperparameter weighting the importance of the style cost
   # Returns:
   # J -- total cost as defined by the formula above.
+  alpha <- tf$constant(alpha, dtype = 'float64')
+  beta <- tf$constant(beta, dtype = 'float64')
   J <- J_content * alpha + J_style * beta 
   return (J)
 }
@@ -265,6 +267,15 @@ J_content <- compute_content_cost(a_C, a_G)
 ```
 
 ```{r}
+J_style = compute_style_cost(model, STYLE_LAYERS, style_image, generated_image)
+```
 
+```{r}
+J = total_cost(J_content, J_style, alpha = 10, beta = 40)
+```
+
+```{r}
+optimizer <- tf$train$AdamOptimizer(2.0)
+train_step <- optimizer$minimize(J)
 ```
 
