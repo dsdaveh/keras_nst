@@ -247,7 +247,7 @@ sess <- tf$InteractiveSession()
 ```
 
 ```{r}
-model <- application_vgg19(include_top = FALSE, weights = 'imagenet', pooling = 'avg', input_shape = image_size[-1] )
+model <- application_vgg19(include_top = FALSE, weights = 'imagenet', pooling = 'avg', input_shape = image_size )
 ```
 
 get the activations for the content image for a chosen layer
@@ -261,6 +261,9 @@ a_C <- model_layer %>% predict(content_image)
 ```{r}
 a_G <- model_layer %>% predict(generated_image)
 ```
+```{r}
+model$
+```
 
 ```{r}
 J_content <- compute_content_cost(a_C, a_G) 
@@ -273,7 +276,10 @@ J_style = compute_style_cost(model, STYLE_LAYERS, style_image, generated_image)
 ```{r}
 J = total_cost(J_content, J_style, alpha = 10, beta = 40)
 ```
-
+```{r}
+optimizer <- tf$train$AdamOptimizer(2.0)
+train_step <- optimizer$minimize(J_content)
+```
 ```{r}
 optimizer <- tf$train$AdamOptimizer(2.0)
 train_step <- optimizer$minimize(J)

@@ -1,0 +1,121 @@
+---
+title: "VGG-19 Style Transfer Network"
+output: html_notebook
+---
+
+```{r}
+library(keras)
+library(tensorflow)
+library(tidyverse)
+```
+
+
+```{r}
+compute_content_cost <- function(a_C, a_G) {
+# Computes the content cost
+# 
+#  Arguments:
+#  a_C -- tensor of dimension (1, n_H, n_W, n_C), hidden layer activations
+#  a_G -- tensor of dimension (1, n_H, n_W, n_C), hidden layer activations
+# 
+#  Returns:
+# J_content -- scalar that you compute using equation 1 above.
+  
+  dims <- dim(a_C)
+  a_C_unrolled <- tf$reshape(a_C, c(dims[1], dims[2] * dims[3], dims[4]))
+  a_G_unrolled <- tf$reshape(a_G, c(dims[1], dims[2] * dims[3], dims[4]))
+  
+  denom <- tf$constant(4 *  prod(dims[2:4]), dtype = a_C_unrolled$dtype)
+
+  J_content <- a_C_unrolled %>%
+    tf$subtract(a_G_unrolled) %>% 
+    tf$square() %>%
+    tf$reduce_sum() / denom
+  
+  return(J_content)
+}
+```
+
+Test ... expect 6.765593
+
+```{r}
+tf$reset_default_graph()
+sess <- tf$Session()
+#sess$run(tf$global_variables_initializer())
+tf$set_random_seed(1L)
+a_C  <- tf$random_normal(c(1L, 4L, 4L, 3L), mean=1, stddev=4)
+a_G  <- tf$random_normal(c(1L, 4L, 4L, 3L), mean=1, stddev=4)
+J_content <- compute_content_cost(a_C, a_G)
+sess$run(J_content)
+```
+
+```{r}
+content_image <- content_path %>%
+  image_load() %>%
+  image_to_array() %>%
+  array_reshape(c(1, dim(.)))
+```
+```{r}
+plot(1:2, 1:2, type='n', asp = 1)
+rasterImage(content_image[1,,,]/255 , 1,1,2,2)
+```
+
+```{r}
+CONFIG.NOISE_RATIO <- 0.6
+generate_noise_image <- function(content_image, noise_ratio = CONFIG.NOISE_RATIO) {
+  #    Generates a noisy image by adding random noise to the content_image
+  
+  # Generate a random noise_image
+  image_size <- dim(content_image)
+  noise_image <- runif( prod(image_size), min = 0, max = 255)
+  dim(noise_image) <- image_size
+  
+  # Set the input_image to be a weighted average of the content_image and a noise_image
+  input_image <- noise_image * noise_ratio + content_image * (1 - noise_ratio)
+  
+  return (input_image)
+}
+```
+
+```{r}
+generated_image <- generate_noise_image(content_image) 
+```
+```{r}
+plot(1:2, 1:2, type='n', asp = 1)
+rasterImage(generated_image[1,,,]/255 , 1,1,2,2)
+```
+
+```{r}
+# Reset the graph 
+tf$reset_default_graph()
+# Start interactive session
+sess <- tf$InteractiveSession()
+```
+
+```{r}
+model <- application_vgg19(include_top = FALSE, weights = 'imagenet', pooling = 'avg', input_shape = image_size )
+```
+
+get the activations for the content image for a chosen layer
+```{r}
+layer_name <- 'block4_conv2'
+model_layer <- keras_model(inputs = model$input,
+                           outputs = get_layer(model, layer_name)$output) 
+a_C <- model_layer %>% predict(content_image)
+```
+
+```{r}
+a_G <- model_layer %>% predict(generated_image)
+```
+
+```{r}
+J_content <- compute_content_cost(a_C, a_G) 
+```
+
+```{r}
+optimizer <- tf$train$AdamOptimizer(2.0)
+train_step <- optimizer$minimize(J_content)
+```
+
+
+
