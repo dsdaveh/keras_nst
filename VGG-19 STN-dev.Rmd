@@ -50,10 +50,12 @@ sess$run(J_content)
 ```
 
 ```{r}
+content_path <- 'images/louvre_small.jpg'
 content_image <- content_path %>%
   image_load() %>%
   image_to_array() %>%
   array_reshape(c(1, dim(.)))
+image_size <- dim(content_image)[2:4]
 ```
 ```{r}
 plot(1:2, 1:2, type='n', asp = 1)
@@ -104,11 +106,16 @@ model_layer <- keras_model(inputs = model$input,
 a_C <- model_layer %>% predict(content_image)
 ```
 
-```{r}
-a_G <- model_layer %>% predict(generated_image)
-```
 
 ```{r}
+#NOT sure why I need this step here, but I get an error from model_to_estimator saying the model needs to be compiled
+model_layer %>% compile(loss='categorical_crossentropy', optimizer='adam') 
+```
+```{r}
+tf_model <- tf$keras$estimator$model_to_estimator(keras_model = model_layer)
+```
+```{r}
+a_G <- model_layer
 J_content <- compute_content_cost(a_C, a_G) 
 ```
 
